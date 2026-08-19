@@ -57,7 +57,6 @@ describe.each([
 		let AggregatorRegistry;
 		let announcementChannel;
 		let registry;
-		let discovery;
 
 		beforeEach(async () => {
 			jest.resetModules();
@@ -66,18 +65,11 @@ describe.each([
 			announcementChannel = new BroadcastChannel(
 				'@prometheus-io/client:announce',
 			).unref();
-
-			discovery = new Promise(resolve => {
-				announcementChannel.addEventListener('message', async event => {
-					if (event.data.type === ANNOUNCEMENT && !event.data.primary) {
-						resolve(event);
-					}
-				});
-			});
 		});
 
 		afterEach(async () => {
 			announcementChannel.close();
+			AggregatorRegistry.resetForTesting();
 		});
 
 		it('works properly if there are no workers', async () => {
@@ -96,7 +88,13 @@ describe.each([
 				threadId,
 			});
 
-			await discovery; // Let announcements arrive
+			// Wait for the primary to register this fake worker, rather than
+			// hoping to catch a message announcing it: a self-posted message on
+			// announcementChannel is never delivered back to announcementChannel
+			// itself, so nothing here guarantees an observable echo.
+			while (AggregatorRegistry.workerCount() < 1) {
+				await delay(1);
+			}
 
 			announcementChannel.addEventListener('message', async event => {
 				if (event.data.type !== GET_METRICS_REQ) return;
@@ -135,7 +133,13 @@ describe.each([
 				return { threadId, channel };
 			});
 
-			await discovery; // Let announcements arrive
+			// Wait for the primary to register all 3 fake workers, rather than
+			// hoping to catch a message announcing it: a self-posted message on
+			// announcementChannel is never delivered back to announcementChannel
+			// itself, so nothing here guarantees an observable echo.
+			while (AggregatorRegistry.workerCount() < responders.length) {
+				await delay(1);
+			}
 
 			let finishSendingResponses;
 			const responsesSent = new Promise(resolve => {
@@ -170,13 +174,6 @@ describe.each([
 		});
 
 		it('accumulate stats from terminated workers', async () => {
-			jest.resetModules();
-			const AggregatorRegistry = require('../lib/worker');
-			const registry = new AggregatorRegistry(regType);
-			const announcementChannel = new BroadcastChannel(
-				'@prometheus-io/client:announce',
-			).unref();
-
 			const threadId = 134;
 			const name = `@prometheus-io/client:worker:${threadId}`;
 			const channel = new BroadcastChannel(name).unref();
@@ -187,7 +184,9 @@ describe.each([
 				threadId,
 			});
 
-			await delay(5); // Let announcements arrive
+			while (AggregatorRegistry.workerCount() < 1) {
+				await delay(1);
+			}
 
 			const ack = new Promise(resolve => {
 				channel.addEventListener('message', async event => {
@@ -209,7 +208,6 @@ describe.each([
 				const result = await registry.workerMetrics();
 				expect(result).toContain('test_metric 0.123456');
 			} finally {
-				announcementChannel.close();
 				channel.close();
 			}
 		});
@@ -219,7 +217,6 @@ describe.each([
 		let AggregatorRegistry;
 		let announcementChannel;
 		let registry;
-		let discovery;
 
 		beforeEach(async () => {
 			jest.resetModules();
@@ -230,18 +227,11 @@ describe.each([
 			).unref();
 
 			registry = new AggregatorRegistry(regType);
-
-			discovery = new Promise(resolve => {
-				announcementChannel.addEventListener('message', async event => {
-					if (event.data.type === ANNOUNCEMENT && !event.data.primary) {
-						resolve(event);
-					}
-				});
-			});
 		});
 
 		afterEach(() => {
 			announcementChannel.close();
+			AggregatorRegistry.resetForTesting();
 		});
 
 		it('returns immediately on no outstanding requests', async () => {
@@ -249,6 +239,10 @@ describe.each([
 		});
 
 		it('sends data back to the primary', async () => {
+			// The beforeEach above set this instance up as the primary; tear it
+			// down before loading a fresh one to act as the worker instead, so
+			// the primary's channels don't leak into later tests.
+			AggregatorRegistry.resetForTesting();
 			jest.resetModules();
 			AggregatorRegistry = require('../lib/worker');
 
@@ -322,7 +316,13 @@ describe.each([
 					}
 				});
 
-				await discovery;
+				// Wait for the primary to register this fake worker, rather than
+				// hoping to catch a message announcing it: a self-posted message on
+				// announcementChannel is never delivered back to announcementChannel
+				// itself, so nothing here guarantees an observable echo.
+				while (AggregatorRegistry.workerCount() < 1) {
+					await delay(1);
+				}
 			});
 
 			afterEach(() => {
@@ -347,6 +347,7 @@ describe.each([
 
 				const AggregatorRegistry = require('../lib/worker');
 				const ar = new AggregatorRegistry(regType);
+				AggregatorRegistry.resetForTesting();
 			}
 		});
 
@@ -378,7 +379,9 @@ describe.each([
 			try {
 				expect(() => channel.postMessage(unexpected)).not.toThrow();
 			} finally {
+				announcementChannel.close();
 				channel.close();
+				WorkerRegistry.resetForTesting();
 			}
 		});
 	});
