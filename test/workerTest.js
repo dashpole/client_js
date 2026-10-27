@@ -216,7 +216,6 @@ describe.each([
 	describe('shutdown()', () => {
 		let AggregatorRegistry;
 		let announcementChannel;
-		let registry;
 
 		beforeEach(async () => {
 			jest.resetModules();
@@ -225,8 +224,6 @@ describe.each([
 			announcementChannel = new BroadcastChannel(
 				'@prometheus-io/client:announce',
 			).unref();
-
-			registry = new AggregatorRegistry(regType);
 		});
 
 		afterEach(() => {
@@ -235,17 +232,11 @@ describe.each([
 		});
 
 		it('returns immediately on no outstanding requests', async () => {
+			const registry = new AggregatorRegistry(regType);
 			await expect(registry.shutdown()).resolves.not.toThrow();
 		});
 
 		it('sends data back to the primary', async () => {
-			// The beforeEach above set this instance up as the primary; tear it
-			// down before loading a fresh one to act as the worker instead, so
-			// the primary's channels don't leak into later tests.
-			AggregatorRegistry.resetForTesting();
-			jest.resetModules();
-			AggregatorRegistry = require('../lib/worker');
-
 			const workerRegistry = new AggregatorRegistry(regType, false);
 			const name = `@prometheus-io/client:worker:0`;
 			const channel = new BroadcastChannel(name).unref();
@@ -292,9 +283,12 @@ describe.each([
 		});
 
 		describe('with workers', () => {
+			let registry;
 			let channel;
 
 			beforeEach(async () => {
+				registry = new AggregatorRegistry(regType);
+
 				const threadId = 22;
 				const name = `@prometheus-io/client:test-worker:${threadId}`;
 				channel = new BroadcastChannel(name).unref();
@@ -341,21 +335,36 @@ describe.each([
 	});
 
 	describe('message handling', () => {
-		it("listeners don't accumulate", () => {
-			for (let i = 0; i < 30; i++) {
-				jest.resetModules();
+		let WorkerRegistry;
 
-				const AggregatorRegistry = require('../lib/worker');
-				const ar = new AggregatorRegistry(regType);
-				AggregatorRegistry.resetForTesting();
+		beforeEach(() => {
+			jest.resetModules();
+			WorkerRegistry = require('../lib/worker');
+		});
+
+		afterEach(() => {
+			WorkerRegistry.resetForTesting();
+			jest.restoreAllMocks();
+		});
+
+		it("listeners don't accumulate", () => {
+			const addEventListener = jest.spyOn(
+				BroadcastChannel.prototype,
+				'addEventListener',
+			);
+
+			new WorkerRegistry(regType);
+			const listeners = addEventListener.mock.calls.length;
+			for (let i = 0; i < 30; i++) {
+				new WorkerRegistry(regType);
 			}
+
+			expect(listeners).toBeGreaterThan(0);
+			expect(addEventListener).toHaveBeenCalledTimes(listeners);
 		});
 
 		it('does not error out on unexpected (or late) responses', () => {
-			jest.resetModules();
-
-			const WorkerRegistry = require('../lib/worker');
-			const registry = new WorkerRegistry(regType);
+			new WorkerRegistry(regType);
 			const announcementChannel = new BroadcastChannel(
 				'@prometheus-io/client:announce',
 			).unref();
@@ -381,7 +390,6 @@ describe.each([
 			} finally {
 				announcementChannel.close();
 				channel.close();
-				WorkerRegistry.resetForTesting();
 			}
 		});
 	});
