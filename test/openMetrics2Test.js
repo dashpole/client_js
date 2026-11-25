@@ -232,6 +232,81 @@ describe('OpenMetrics 2.0 (2.0.0-rc.1) Exposition and Content Negotiation', () =
 
 			expect(cWithSuffix.name).toBe('http_requests_total');
 		});
+
+		it('does not mutate Counter.name across shared OpenMetrics/Prometheus registries or getSingleMetricAsString()', async () => {
+			const omReg = new Registry(Registry.OPENMETRICS_CONTENT_TYPE);
+			const promReg = new Registry(Registry.PROMETHEUS_CONTENT_TYPE);
+			const c = new Counter({
+				name: 'switch_counter_total',
+				help: 'Switch counter',
+				registers: [omReg, promReg],
+			});
+			c.inc(4);
+
+			const singleBeforeMetrics = await omReg.getSingleMetricAsString(
+				'switch_counter_total',
+			);
+			expect(singleBeforeMetrics).toBe(
+				[
+					'# HELP switch_counter Switch counter',
+					'# TYPE switch_counter counter',
+					'switch_counter_total 4',
+				].join('\n'),
+			);
+
+			await omReg.metrics();
+			expect(c.name).toBe('switch_counter_total');
+			expect((await omReg.getMetricsAsJSON())[0].name).toBe(
+				'switch_counter_total',
+			);
+			expect(await promReg.metrics()).toContain('switch_counter_total 4');
+			omReg.setContentType(Registry.PROMETHEUS_CONTENT_TYPE);
+			expect(await omReg.metrics()).toContain('switch_counter_total 4');
+		});
+
+		it('handles custom per-sample val.metricName overrides in OpenMetrics 1.0 and 2.0', async () => {
+			const omReg = new Registry(Registry.OPENMETRICS_CONTENT_TYPE);
+			omReg.registerMetric({
+				name: 'custom_family',
+				async get() {
+					return {
+						name: 'custom_family',
+						help: 'Custom counter with sample overrides',
+						type: 'counter',
+						values: [
+							{ metricName: 'sub_series_total', value: 3, labels: {} },
+							{ metricName: 'bad\nseries', value: 1, labels: {} },
+						],
+					};
+				},
+			});
+
+			expect(await omReg.metrics()).toBe(
+				[
+					'# HELP custom_family Custom counter with sample overrides',
+					'# TYPE custom_family counter',
+					'sub_series_total 3',
+					'bad\\nseries_total 1',
+					'# EOF',
+					'',
+				].join('\n'),
+			);
+
+			expect(
+				await omReg.metrics({
+					contentType: Registry.OPENMETRICS_2_0_CONTENT_TYPE,
+				}),
+			).toBe(
+				[
+					'# HELP custom_family Custom counter with sample overrides',
+					'# TYPE custom_family counter',
+					'sub_series_total 3',
+					'bad\\nseries 1',
+					'# EOF',
+					'',
+				].join('\n'),
+			);
+		});
 	});
 
 	describe('Gauge and Unit validation in OpenMetrics 2.0', () => {
