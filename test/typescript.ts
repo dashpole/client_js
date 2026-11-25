@@ -21,6 +21,8 @@ import {
 	MetricType,
 	MetricValue,
 	MetricValueWithName,
+	PrometheusContentType,
+	RegistryContentType,
 	openMetrics20ContentType,
 	openMetrics20RcContentType,
 	openMetrics001ContentType,
@@ -30,6 +32,19 @@ import {
 const registry = new Registry();
 const om20Registry = new Registry(Registry.OPENMETRICS_2_0_CONTENT_TYPE);
 const om20RcRegistry = new Registry(Registry.OPENMETRICS_2_0_RC_CONTENT_TYPE);
+new Registry<PrometheusContentType>().setContentType(
+	Registry.OPENMETRICS_CONTENT_TYPE,
+);
+new Registry(Registry.PROMETHEUS_CONTENT_TYPE).setContentType(
+	Registry.OPENMETRICS_CONTENT_TYPE,
+);
+Registry.aggregate([]).setContentType(Registry.OPENMETRICS_CONTENT_TYPE);
+const mergedOm20: Registry = Registry.merge([om20Registry]);
+const bareOm20Registry: Registry = om20Registry;
+const registryContentType: RegistryContentType = registry.contentType;
+void mergedOm20;
+void bareOm20Registry;
+void registryContentType;
 const counter = new Counter({
 	name: 'typescript_test_counter',
 	help: 'TypeScript test counter',
