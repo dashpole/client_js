@@ -13,6 +13,10 @@ project adheres to [Semantic Versioning](http://semver.org/).
 - `reset()` changes that may require modifications to custom Metrics:
   - it is no longer called in the middle of the constructor
   - it now defaults to clearing the labelMap
+- OpenMetrics scrapes no longer mutate `Counter.name` in place to strip `_total`, which changes exposed names for counters ending in `_total` (#868):
+  - Counters registered in both OpenMetrics and Prometheus registries (or switched to Prometheus via `setContentType()`) now keep `foo_total` in Prometheus output and `getMetricsAsJSON()` after an OpenMetrics scrape, instead of losing `_total` (`foo`)
+  - `getSingleMetricAsString()` and `getMetricsAsString()` on an OpenMetrics registry now expose `foo_total` (with `# HELP`/`# TYPE` family name `foo`) instead of `foo_total_total` when called before `metrics()`
+- TypeScript: `RegistryContentType` now includes `; escaping=<scheme>` variants, so `Registry#contentType` and top-level `contentType` are no longer assignable to `PrometheusContentType | OpenMetricsContentType`; use `RegistryContentType` (or `string`) instead (#868)
 
 ### Changed
 
